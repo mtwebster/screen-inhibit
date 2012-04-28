@@ -1,0 +1,6 @@
+{
+"uuid": "screen-inhibit@mtwebster",
+"name": "Toggle inhibition of screensaver",
+"description": "Click to inhibit the screensaver, click again to remove inhibition",
+"icon": "web-browser"
+}
