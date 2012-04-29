@@ -1,13 +1,16 @@
-This is a Cinnamon applet, which adds a Web Search box to your Cinnamon bar.
+This is a Cinnamon applet, which Enables or Disables your screensaver with the click of the icon.
 
-Left-clicking the item will open a search box where you can enter your criteria.
-You can right-click the applet to edit the search provider file, changing the provider, or adding your own (and its label)
+This currently should work with gnome-screensaver as well as xscreensaver.  If there are more you want me to add then specify in the comments.
+
+
+Left-clicking the icon will disable the screensaver (and change the icon).  Left-clicking again should restart the process.
+
 
 Installation
 ================
 	
-	1) Unzip, copy the folder "search-box@mtwebster" to "~/.local/share/cinnamon/applets/".
+	1) Unzip, copy the folder "screen-inhibit@mtwebster" to "~/.local/share/cinnamon/applets/".
 	
 	2) Enable the applet in cinnamon settings.
 
-If you change providers, you'll have to restart Cinnamon
+
