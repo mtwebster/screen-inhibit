@@ -13,10 +13,21 @@ const Main = imports.ui.main;
 const Gtk = imports.gi.Gtk;
 const GLib = imports.gi.GLib;
 const Cinnamon = imports.gi.Cinnamon;
+const DBus = imports.dbus;
 
 
-const INHIBIT_TT = "Currently preventing screen-saver";
-const ALLOW_TT = "Currently allowing screen-saver";
+const INHIBIT_TT = "Currently preventing screensaver";
+const ALLOW_TT = "Currently allowing screensaver";
+
+const SessionIface = {
+    name: "org.gnome.SessionManager",
+    methods: [ 
+    { name: "Inhibit", inSignature: "susu", outSignature: "u" },
+    { name: "Uninhibit", inSignature: "u", outSignature: "" }
+    ]
+};
+
+let SessionProxy = DBus.makeProxyClass(SessionIface);
 
 disp_state = 0; // inhibit off initially
 
@@ -35,6 +46,14 @@ MyApplet.prototype = {
             this.set_applet_icon_symbolic_name('video-display-symbolic');
             this.set_applet_tooltip(ALLOW_TT);
             this._orientation = orientation;
+            
+            this._inhibit = undefined;
+            this._sessionProxy = new SessionProxy(DBus.session, 'org.gnome.SessionManager', '/org/gnome/SessionManager');
+    
+            this._onInhibit = function(cookie) {
+                this._inhibit = cookie;
+            };
+            
         }
         catch (e) {
             global.logError(e);
@@ -42,21 +61,23 @@ MyApplet.prototype = {
     },
 
     on_applet_clicked: function(event) {
-        switch (disp_state) {
-            case 0:
+        if(this._inhibit) {
+            spawnCommandLineNoError("xscreensaver -nosplash");
+            this._sessionProxy.UninhibitRemote(this._inhibit);
+            this._inhibit = undefined;
+            this.set_applet_icon_symbolic_name('video-display-symbolic');
+            this.set_applet_tooltip(ALLOW_TT);
+        } else {
+            spawnCommandLineNoError("xscreensaver-command -exit"); // this is for xss only
+            try {
+                this._sessionProxy.InhibitRemote("inhibitor",
+                       0, 
+                       "inhibit mode",
+                       9,
+                       Lang.bind(this, this._onInhibit));
                 this.set_applet_icon_symbolic_name('dialog-error-symbolic');
-                this.set_applet_tooltip(INHIBIT_TT);
-                disp_state = 1;
-                spawnCommandLineNoError("gnome-screensaver-command --exit");
-                spawnCommandLineNoError("xscreensaver-command -exit");
-                break;
-            case 1:
-                this.set_applet_icon_symbolic_name('video-display-symbolic');
-                this.set_applet_tooltip(ALLOW_TT);
-                disp_state = 0;
-                spawnCommandLineNoError("gnome-screensaver");
-                spawnCommandLineNoError("xscreensaver -nosplash");
-                break;
+                this.set_applet_tooltip(INHIBIT_TT); 
+            } catch(e) { }
         }
     },
     
