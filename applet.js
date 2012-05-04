@@ -53,11 +53,17 @@ MyApplet.prototype = {
             this._onInhibit = function(cookie) {
                 this._inhibit = cookie;
             };
-            
+            this.screen_menu_item = new Applet.MenuItem(_("Screensaver settings..."), 'system-run-symbolic',
+                    Lang.bind(this, this._screen_menu));
+            this._applet_context_menu.addMenuItem(this.screen_menu_item);
         }
         catch (e) {
             global.logError(e);
         }
+    },
+
+    _screen_menu: function() {
+        Util.spawn(['gnome-control-center', 'screen']);
     },
 
     on_applet_clicked: function(event) {
