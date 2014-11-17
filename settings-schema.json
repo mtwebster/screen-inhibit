@@ -1,0 +1,6 @@
+{
+    "inhibit-cookie": {
+        "type": "generic",
+        "default": "0"
+    }
+}
