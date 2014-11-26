@@ -3,7 +3,6 @@ const Lang = imports.lang;
 const Util = imports.misc.util;
 const Main = imports.ui.main;
 const GLib = imports.gi.GLib;
-const DBus = imports.dbus;
 const Gio = imports.gi.Gio;
 try {
     const Settings = imports.ui.settings;
@@ -14,15 +13,33 @@ try {
 const INHIBIT_TT = "Currently preventing screensaver";
 const ALLOW_TT = "Currently allowing screensaver";
 
-const SessionIface = {
-    name: "org.gnome.SessionManager",
-    methods: [ 
-        { name: "Inhibit", inSignature: "susu", outSignature: "u" },
-        { name: "Uninhibit", inSignature: "u", outSignature: "" }
-    ]
-};
+const SessionManagerIface = '\
+<node> \
+    <interface name="org.gnome.SessionManager"> \
+        <method name="Logout"> \
+            <arg type="u" direction="in" /> \
+        </method> \
+        <method name="Shutdown" /> \
+        <method name="CanShutdown"> \
+            <arg type="b" direction="out" /> \
+        </method> \
+        <method name="Inhibit"> \
+            <arg type="s" direction="in" /> \
+            <arg type="u" direction="in" /> \
+            <arg type="s" direction="in" /> \
+            <arg type="u" direction="in" /> \
+            <arg type="u" direction="out" /> \
+        </method> \
+        <method name="Uninhibit"> \
+            <arg type="u" direction="in" /> \
+        </method> \
+    </interface> \
+</node>';
 
-let SessionProxy = DBus.makeProxyClass(SessionIface);
+var SessionManagerProxy = Gio.DBusProxy.makeProxyWrapper(SessionManagerIface);
+function SessionManager(initCallback, cancellable) {
+    return new SessionManagerProxy(Gio.DBus.session, 'org.gnome.SessionManager', '/org/gnome/SessionManager', initCallback, cancellable);
+}
 
 function MyApplet(metadata, orientation, panel_height, instance_id) {
     this._init(metadata, orientation, panel_height, instance_id);
@@ -70,7 +87,10 @@ MyApplet.prototype = {
 
             this._inhibit = undefined;
             this.inhibited = false;
-            this._sessionProxy = new SessionProxy(DBus.session, 'org.gnome.SessionManager', '/org/gnome/SessionManager');
+
+            SessionManager(Lang.bind(this, function(obj, err) {
+                this._sessionProxy = obj;
+            }));
 
             this._onInhibit = function(cookie) {
                 this._inhibit = cookie;
@@ -86,9 +106,6 @@ MyApplet.prototype = {
         this.screen_menu_item = new Applet.MenuItem("Screensaver settings", 'system-run-symbolic',
                                                     Lang.bind(this, this._screen_menu));
         this._applet_context_menu.addMenuItem(this.screen_menu_item);
-        this.config_menu_item = new Applet.MenuItem("Configure applet", 'system-run-symbolic',
-                                                    Lang.bind(this, this._config_menu));
-        this._applet_context_menu.addMenuItem(this.config_menu_item);
     },
 
     on_settings_changed: function() {
@@ -106,14 +123,8 @@ MyApplet.prototype = {
 
     _screen_menu: function() {
         if (GLib.find_program_in_path("cinnamon-control-center")) {
-            Util.spawn(['cinnamon-settings', 'screensaver']);
-        } else if (GLib.find_program_in_path("gnome-control-center")) {
-            Util.spawn(['gnome-control-center', 'screen']);
+            Util.spawn(['cinnamon-settings', 'power']);
         }
-    },
-
-    _config_menu: function() {
-        Util.spawn(['cinnamon-settings', 'applets', this.uuid]);
     },
 
     on_applet_clicked: function(event) {
@@ -124,7 +135,7 @@ MyApplet.prototype = {
             this.inhibited = false;
         } else {
             try {
-                this._sessionProxy.InhibitRemote("inhibitor",
+                this._sessionProxy.InhibitRemote("inhibitor-screen-inhibit@mtwebster",
                                                  0, 
                                                  "inhibit mode",
                                                  9,
