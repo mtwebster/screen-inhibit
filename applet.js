@@ -1,20 +1,15 @@
 const Applet = imports.ui.applet;
-const Gio = imports.gi.Gio;
 const Lang = imports.lang;
-const Mainloop = imports.mainloop;
-const Clutter = imports.gi.Clutter;
-const St = imports.gi.St;
 const Util = imports.misc.util;
-const PopupMenu = imports.ui.popupMenu;
-const Calendar = imports.ui.calendar;
-const UPowerGlib = imports.gi.UPowerGlib;
-const PanelMenu = imports.ui.panelMenu;
 const Main = imports.ui.main;
-const Gtk = imports.gi.Gtk;
 const GLib = imports.gi.GLib;
-const Cinnamon = imports.gi.Cinnamon;
 const DBus = imports.dbus;
-
+const Gio = imports.gi.Gio;
+try {
+    const Settings = imports.ui.settings;
+} catch (e) {
+    // No settings available, use fallbacks
+}
 
 const INHIBIT_TT = "Currently preventing screensaver";
 const ALLOW_TT = "Currently allowing screensaver";
@@ -22,87 +17,150 @@ const ALLOW_TT = "Currently allowing screensaver";
 const SessionIface = {
     name: "org.gnome.SessionManager",
     methods: [ 
-    { name: "Inhibit", inSignature: "susu", outSignature: "u" },
-    { name: "Uninhibit", inSignature: "u", outSignature: "" }
+        { name: "Inhibit", inSignature: "susu", outSignature: "u" },
+        { name: "Uninhibit", inSignature: "u", outSignature: "" }
     ]
 };
 
 let SessionProxy = DBus.makeProxyClass(SessionIface);
 
-disp_state = 0; // inhibit off initially
-
-function MyApplet(orientation) {
-    this._init(orientation);
+function MyApplet(metadata, orientation, panel_height, instance_id) {
+    this._init(metadata, orientation, panel_height, instance_id);
 }
-
 
 MyApplet.prototype = {
     __proto__: Applet.IconApplet.prototype,
 
-    _init: function(orientation) {        
-        Applet.TextIconApplet.prototype._init.call(this, orientation);
-        
-        try {                 
-            this.set_applet_icon_symbolic_name('video-display-symbolic');
+    _init: function(metadata, orientation, panel_height, instance_id) {
+        Applet.IconApplet.prototype._init.call(this, orientation, panel_height, instance_id);
+        this.uuid = "screen-inhibit@mtwebster";
+
+        this.icon_path_on = false;
+        this.icon_path_off = false;
+
+        try {
+            this.settings = new Settings.AppletSettings(this, this.uuid, instance_id);
+            this.settings.bindProperty(Settings.BindingDirection.IN,
+                                 "off-icon",
+                                 "off_icon",
+                                 this.on_settings_changed,
+                                 null);
+            this.settings.bindProperty(Settings.BindingDirection.IN,
+                                 "on-icon",
+                                 "on_icon",
+                                 this.on_settings_changed,
+                                 null);
+            this.settings.bindProperty(Settings.BindingDirection.IN,
+                                 "keybinding",
+                                 "keybinding",
+                                 this.on_settings_changed,
+                                 null);
+        } catch (e) {
+            this.settings = null;
+            this.off_icon = "video-display-symbolic";
+            this.on_icon = "dialog-error-symbolic";
+            this.keybinding = null;
+            this.icon_path_on = false;
+            this.icon_path_off = false;
+        }
+
+        try {
+            this.set_applet_icon_symbolic_name(this.off_icon);
             this.set_applet_tooltip(ALLOW_TT);
-            this._orientation = orientation;
-            
+
             this._inhibit = undefined;
+            this.inhibited = false;
             this._sessionProxy = new SessionProxy(DBus.session, 'org.gnome.SessionManager', '/org/gnome/SessionManager');
-    
+
             this._onInhibit = function(cookie) {
                 this._inhibit = cookie;
             };
-            this.screen_menu_item = new Applet.MenuItem(_("Screensaver settings..."), 'system-run-symbolic',
-                    Lang.bind(this, this._screen_menu));
-            this._applet_context_menu.addMenuItem(this.screen_menu_item);
-        }
-        catch (e) {
+        } catch (e) {
             global.logError(e);
         }
+
+        if (this.settings) {
+            this.on_settings_changed();
+        }
+
+        this.screen_menu_item = new Applet.MenuItem("Screensaver settings", 'system-run-symbolic',
+                                                    Lang.bind(this, this._screen_menu));
+        this._applet_context_menu.addMenuItem(this.screen_menu_item);
+        this.config_menu_item = new Applet.MenuItem("Configure applet", 'system-run-symbolic',
+                                                    Lang.bind(this, this._config_menu));
+        this._applet_context_menu.addMenuItem(this.config_menu_item);
+    },
+
+    on_settings_changed: function() {
+        if (this.keybinding != null)
+            Main.keybindingManager.addHotKey(this.uuid, this.keybinding, Lang.bind(this, this.on_applet_clicked));
+
+        let on_file = Gio.file_new_for_path(this.on_icon);
+        let off_file = Gio.file_new_for_path(this.off_icon);
+
+        this.icon_path_on = on_file.query_exists(null);
+        this.icon_path_off = off_file.query_exists(null);
+
+        this.update_icon();
     },
 
     _screen_menu: function() {
-        Util.spawn(['gnome-control-center', 'screen']);
+        if (GLib.find_program_in_path("cinnamon-control-center")) {
+            Util.spawn(['cinnamon-settings', 'screensaver']);
+        } else if (GLib.find_program_in_path("gnome-control-center")) {
+            Util.spawn(['gnome-control-center', 'screen']);
+        }
+    },
+
+    _config_menu: function() {
+        Util.spawn(['cinnamon-settings', 'applets', this.uuid]);
     },
 
     on_applet_clicked: function(event) {
-        if(this._inhibit) {
-            spawnCommandLineNoError("xscreensaver -nosplash");
+        if (this._inhibit) {
             this._sessionProxy.UninhibitRemote(this._inhibit);
             this._inhibit = undefined;
-            this.set_applet_icon_symbolic_name('video-display-symbolic');
             this.set_applet_tooltip(ALLOW_TT);
+            this.inhibited = false;
         } else {
-            spawnCommandLineNoError("xscreensaver-command -exit"); // this is for xss only
             try {
                 this._sessionProxy.InhibitRemote("inhibitor",
-                       0, 
-                       "inhibit mode",
-                       9,
-                       Lang.bind(this, this._onInhibit));
-                this.set_applet_icon_symbolic_name('dialog-error-symbolic');
+                                                 0, 
+                                                 "inhibit mode",
+                                                 9,
+                                                 Lang.bind(this, this._onInhibit));
                 this.set_applet_tooltip(INHIBIT_TT); 
-            } catch(e) { }
+                this.inhibited = true;
+            } catch(e) {
+            }
+        }
+        this.update_icon();
+    },
+
+    update_icon: function() {
+        if (this.inhibited) {
+            if (this.icon_path_on) {
+                this.set_applet_icon_path(this.on_icon)
+            } else {
+                if (this.on_icon.indexOf("symbolic") > -1)
+                    this.set_applet_icon_symbolic_name(this.on_icon)
+                else
+                    this.set_applet_icon_name(this.on_icon)
+            }
+        } else {
+            if (this.icon_path_off) {
+                this.set_applet_icon_path(this.off_icon)
+            } else {
+                if (this.off_icon.indexOf("symbolic") > -1)
+                    this.set_applet_icon_symbolic_name(this.off_icon)
+                else
+                    this.set_applet_icon_name(this.off_icon)
+            }
         }
     },
-    
-    on_orientation_changed: function (orientation) {
-        this._orientation = orientation;
-        this._initContextMenu();
-    }
 };
 
-
-function spawnCommandLineNoError(command_line) {
-    try {
-        let [success, argv] = GLib.shell_parse_argv(command_line);
-        Main.Util.trySpawn(argv);
-    } catch (err) {}
-}    
-
-
-function main(metadata, orientation) {  
-    let myApplet = new MyApplet(orientation);
-    return myApplet;      
+function main(metadata, orientation, panel_height, instance_id) {
+    let myApplet = new MyApplet(metadata, orientation, panel_height, instance_id);
+    return myApplet;
 }
