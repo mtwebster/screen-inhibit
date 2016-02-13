@@ -138,7 +138,7 @@ MyApplet.prototype = {
                 this._sessionProxy.InhibitRemote("inhibitor-screen-inhibit@mtwebster",
                                                  0, 
                                                  "inhibit mode",
-                                                 9,
+                                                 8,
                                                  Lang.bind(this, this._onInhibit));
                 this.set_applet_tooltip(INHIBIT_TT); 
                 this.inhibited = true;
